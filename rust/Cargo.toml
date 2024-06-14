@@ -6,4 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-slab = "0.4.9"
+cranelift = "0.108.1"
+cranelift-jit = "0.108.1"
+cranelift-module = "0.108.1"
+cranelift-native = "0.108.1"
