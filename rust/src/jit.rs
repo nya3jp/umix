@@ -1,19 +1,18 @@
-use std::{
-    collections::BTreeMap,
-    io::{Read as _, Write as _},
-};
+use std::collections::BTreeMap;
 
-use compiler::{CommonTypes, JitCompiler};
 use cranelift::{
     frontend::{FunctionBuilder, FunctionBuilderContext},
-    prelude::*,
     prelude::AbiParam,
+    prelude::*,
 };
 use cranelift_module::Module as _;
 
-use crate::{instruction::Instruction, memory::{Arrays, Memory}};
-
-mod compiler;
+use crate::{
+    compiler::{CommonTypes, JitCompiler},
+    instruction::Instruction,
+    interpreter::{execute_step, StepResult},
+    memory::{Arrays, Memory},
+};
 
 type JitFunc = Box<dyn Fn(&mut Memory) -> JitFuncResult>;
 
@@ -25,95 +24,6 @@ enum JitFuncResult {
     Jump { id: u32, new_pc: u32 } = 1,
     Complete { pc: u32 } = 2,
     Miss { pc: u32 } = 3,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StepResult {
-    Halt,
-    Next,
-    Jump { id: u32, new_pc: usize },
-}
-
-fn execute_step(inst: Instruction, memory: &mut Memory) -> StepResult {
-    match inst.opcode() {
-        0 => {
-            if memory.regs[inst.c()] != 0 {
-                memory.regs[inst.a()] = memory.regs[inst.b()];
-            }
-            StepResult::Next
-        }
-        1 => {
-            memory.regs[inst.a()] =
-                memory.arrays[memory.regs[inst.b()] as usize][memory.regs[inst.c()] as usize];
-                StepResult::Next
-        }
-        2 => {
-            memory.arrays[memory.regs[inst.a()] as usize][memory.regs[inst.b()] as usize] =
-                memory.regs[inst.c()];
-                StepResult::Next
-        }
-        3 => {
-            memory.regs[inst.a()] = memory.regs[inst.b()].wrapping_add(memory.regs[inst.c()]);
-            StepResult::Next
-        }
-        4 => {
-            memory.regs[inst.a()] = memory.regs[inst.b()].wrapping_mul(memory.regs[inst.c()]);
-            StepResult::Next
-        }
-        5 => {
-            memory.regs[inst.a()] = memory.regs[inst.b()] / memory.regs[inst.c()];
-            StepResult::Next
-        }
-        6 => {
-            memory.regs[inst.a()] = !(memory.regs[inst.b()] & memory.regs[inst.c()]);
-            StepResult::Next
-        }
-        7 => StepResult::Halt,
-        8 => {
-            let size = memory.regs[inst.c()] as usize;
-            let id = memory.arrays.insert(vec![0; size]);
-            memory.regs[inst.b()] = id as u32;
-            StepResult::Next
-        }
-        9 => {
-            let id = memory.regs[inst.c()];
-            memory.arrays.remove(id as usize);
-            StepResult::Next
-        }
-        10 => {
-            let value = memory.regs[inst.c()];
-            std::io::stdout()
-                .write_all(&[value as u8])
-                .expect("write error");
-            StepResult::Next
-        }
-        11 => {
-            std::io::stdout().flush().expect("flush error");
-            let mut buf = [0];
-            let size = std::io::stdin().read(&mut buf).expect("read error");
-            if size == 0 {
-                memory.regs[inst.c()] = !0;
-            } else {
-                memory.regs[inst.c()] = buf[0] as u32;
-            }
-            StepResult::Next
-        }
-        12 => {
-            let id = memory.regs[inst.b()];
-            let new_pc = memory.regs[inst.c()] as usize;
-            if id != 0 {
-                memory.arrays.dup0(id as usize);
-            }
-            StepResult::Jump { id, new_pc }
-        }
-        13 => {
-            memory.regs[inst.imm_a()] = inst.imm_value();
-            StepResult::Next
-        }
-        op => {
-            panic!("unknown opcode {op}");
-        }
-    }
 }
 
 fn tracing_run(
@@ -182,9 +92,12 @@ fn tracing_run(
         // Save registers.
         for (i, reg_var) in reg_vars.iter().enumerate() {
             let value = builder.use_var(*reg_var);
-            builder
-                .ins()
-                .store(MemFlags::trusted(), value, regs_value, (i as u32 * platter.bytes()) as i32);
+            builder.ins().store(
+                MemFlags::trusted(),
+                value,
+                regs_value,
+                (i as u32 * platter.bytes()) as i32,
+            );
         }
 
         // Save results.
@@ -323,9 +236,7 @@ fn tracing_run(
                 let miss_block = builder.create_block();
                 let next_block = builder.create_block();
 
-                builder
-                    .ins()
-                    .brif(id, far_block, &[], near_block, &[]);
+                builder.ins().brif(id, far_block, &[], near_block, &[]);
                 builder.seal_block(far_block);
                 builder.seal_block(near_block);
 
@@ -334,7 +245,10 @@ fn tracing_run(
                 builder.ins().jump(return_block, &[code, id, new_pc]);
 
                 builder.switch_to_block(near_block);
-                let cond = builder.ins().icmp_imm(IntCC::Equal, new_pc, memory.regs[inst.c()] as i64);
+                let cond =
+                    builder
+                        .ins()
+                        .icmp_imm(IntCC::Equal, new_pc, memory.regs[inst.c()] as i64);
                 builder.ins().brif(cond, next_block, &[], miss_block, &[]);
                 builder.seal_block(miss_block);
                 builder.seal_block(next_block);
@@ -378,8 +292,14 @@ fn tracing_run(
     builder.seal_all_blocks();
     builder.finalize();
 
-    let func_id = compiler.module().declare_anonymous_function(&ctx.func.signature).unwrap();
-    compiler.module().define_function(func_id, &mut ctx).unwrap();
+    let func_id = compiler
+        .module()
+        .declare_anonymous_function(&ctx.func.signature)
+        .unwrap();
+    compiler
+        .module()
+        .define_function(func_id, &mut ctx)
+        .unwrap();
     if let Some(vcode) = ctx.compiled_code().unwrap().vcode.as_ref() {
         eprintln!("{}", vcode);
     }
@@ -387,20 +307,13 @@ fn tracing_run(
 
     let jit_func_ptr = compiler.module().get_finalized_function(func_id);
     // TODO: Manage the lifetime of the JIT function.
-    let jit_func: extern "C" fn(
-        &mut [u32; 8],
-        &mut Arrays,
-        &mut JitFuncResult,
-    ) = unsafe { std::mem::transmute(jit_func_ptr) };
+    let jit_func: extern "C" fn(&mut [u32; 8], &mut Arrays, &mut JitFuncResult) =
+        unsafe { std::mem::transmute(jit_func_ptr) };
 
     // Create a Rust function convenient for calling the generated function.
     let jit_func = Box::new(move |memory: &mut Memory| -> JitFuncResult {
         let mut result = JitFuncResult::Halt;
-        jit_func(
-            &mut memory.regs,
-            &mut memory.arrays,
-            &mut result,
-        );
+        jit_func(&mut memory.regs, &mut memory.arrays, &mut result);
         result
     });
     (Some(jit_func), pc)
@@ -416,10 +329,9 @@ pub fn run(program: Vec<u32>) {
     let mut pc = 0;
     loop {
         // Run the JIT function if it exists.
-        if let Some(jit_func) = jit_funcs.get(&pc) {
-            // eprintln!("# calling jit function: pc={}", pc);
+        while let Some(jit_func) = jit_funcs.get(&pc) {
             match jit_func(&mut memory) {
-                JitFuncResult::Halt => break,
+                JitFuncResult::Halt => return,
                 JitFuncResult::Jump { id, new_pc } => {
                     if id != 0 {
                         hits.clear();
@@ -429,42 +341,46 @@ pub fn run(program: Vec<u32>) {
                     pc = new_pc as usize;
                 }
                 JitFuncResult::Complete { pc: new_pc } => {
-                    // eprintln!("# jit function: complete");
                     pc = new_pc as usize;
                 }
                 JitFuncResult::Miss { pc: new_pc } => {
-                    // eprintln!("# jit function: miss! (new_pc={})", new_pc);
                     pc = new_pc as usize;
                 }
             }
-            continue;
+        }
+
+        // This is a good candidate for tracing.
+        {
+            let count = hits.entry(pc).or_insert(0);
+            *count += 1;
+            if *count == 100 {
+                let (compiled_func, new_pc) =
+                    tracing_run(&mut memory, pc, &mut func_ctx, &mut compiler);
+                if let Some(compiled_func) = compiled_func {
+                    jit_funcs.insert(pc, compiled_func);
+                }
+                pc = new_pc;
+                // Try the newly compiled function.
+                continue;
+            }
         }
 
         // Run the interpreter.
-        let inst = Instruction::from_u32(memory.arrays[0][pc]);
-        match execute_step(inst, &mut memory) {
-            StepResult::Halt => break,
-            StepResult::Next => pc += 1,
-            StepResult::Jump { id, new_pc } => {
-                let backward = new_pc < pc;
-                pc = new_pc;
-                if id != 0 {
-                    hits.clear();
-                    jit_funcs.clear();
-                }
-                if id == 0 && backward && !jit_funcs.contains_key(&pc) {
-                    let count = hits.entry(pc).or_insert(0);
-                    *count += 1;
-                    if *count > 100 {
-                        // eprintln!("# tracing: pc={}", pc);
-                        let (compiled_func, new_pc) = tracing_run(&mut memory, pc, &mut func_ctx, &mut compiler);
-                        if let Some(compiled_func) = compiled_func {
-                            // eprintln!("# tracing success");
-                            jit_funcs.insert(pc, compiled_func);
-                        } else {
-                            // eprintln!("# tracing failed!");
-                        }
-                        pc = new_pc;
+        while !jit_funcs.contains_key(&pc) {
+            let inst = Instruction::from_u32(memory.arrays[0][pc]);
+            match execute_step(inst, &mut memory) {
+                StepResult::Halt => return,
+                StepResult::Next => pc += 1,
+                StepResult::Jump { id, new_pc } => {
+                    let backward = new_pc < pc;
+                    if id != 0 {
+                        hits.clear();
+                        jit_funcs.clear();
+                    }
+                    pc = new_pc;
+                    if id != 0 || backward {
+                        // This is a good candidate for tracing.
+                        break;
                     }
                 }
             }

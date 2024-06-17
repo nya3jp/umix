@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Parser as _;
@@ -35,15 +35,20 @@ struct DumpArgs {
     codex: PathBuf,
 }
 
+fn load_program(path: &Path) -> Result<Vec<u32>> {
+    let data = std::fs::read(path)?;
+    let program: Vec<u32> = data
+        .chunks_exact(4)
+        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
+        .collect();
+    Ok(program)
+}
+
 fn main() -> Result<()> {
     let args = Args::try_parse()?;
     match args.command {
         Command::Run(args) => {
-            let data = std::fs::read(args.codex)?;
-            let program: Vec<u32> = data
-                .chunks_exact(4)
-                .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-                .collect();
+            let program = load_program(&args.codex)?;
             if args.jit {
                 jit::run(program);
             } else {
@@ -51,11 +56,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Dump(args) => {
-            let data = std::fs::read(args.codex)?;
-            let program: Vec<u32> = data
-                .chunks_exact(4)
-                .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-                .collect();
+            let program = load_program(&args.codex)?;
             for (pc, code) in program.into_iter().enumerate() {
                 match ParsedInstruction::from_u32(code) {
                     Some(inst) => println!("{pc:08}: {inst:?}"),
