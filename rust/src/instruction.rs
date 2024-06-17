@@ -1,4 +1,49 @@
-pub enum Instruction {
+#[derive(Clone, Copy, Debug)]
+pub struct Instruction(u32);
+
+impl Instruction {
+    pub fn new(code: u32) -> Self {
+        Self(code)
+    }
+
+    pub fn from_u32(code: u32) -> Self {
+        Self(code)
+    }
+
+    pub fn to_u32(self) -> u32 {
+        self.0
+    }
+
+    pub fn opcode(self) -> u32 {
+        self.0 >> 28
+    }
+
+    pub fn a(self) -> usize {
+        ((self.0 >> 6) & 7) as usize
+    }
+
+    pub fn b(self) -> usize {
+        ((self.0 >> 3) & 7) as usize
+    }
+
+    pub fn c(self) -> usize {
+        (self.0 & 7) as usize
+    }
+
+    pub fn imm_a(self) -> usize {
+        ((self.0 >> 25) & 7) as usize
+    }
+
+    pub fn imm_value(self) -> u32 {
+        self.0 & 0x1ffffff
+    }
+
+    pub fn parse(self) -> Option<ParsedInstruction> {
+        ParsedInstruction::from_u32(self.0)
+    }
+}
+
+pub enum ParsedInstruction {
     ConditionalMove { a: usize, b: usize, c: usize },
     ArrayIndex { a: usize, b: usize, c: usize },
     ArrayAmendment { a: usize, b: usize, c: usize },
@@ -15,85 +60,85 @@ pub enum Instruction {
     Immediate { a: usize, value: u32 },
 }
 
-impl Instruction {
-    pub fn from_u32(code: u32) -> Option<Instruction> {
+impl ParsedInstruction {
+    pub fn from_u32(code: u32) -> Option<ParsedInstruction> {
         match code >> 28 {
             0 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::ConditionalMove { a, b, c })
+                Some(ParsedInstruction::ConditionalMove { a, b, c })
             }
             1 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::ArrayIndex { a, b, c })
+                Some(ParsedInstruction::ArrayIndex { a, b, c })
             }
             2 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::ArrayAmendment { a, b, c })
+                Some(ParsedInstruction::ArrayAmendment { a, b, c })
             }
             3 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::Addition { a, b, c })
+                Some(ParsedInstruction::Addition { a, b, c })
             }
             4 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::Multiplication { a, b, c })
+                Some(ParsedInstruction::Multiplication { a, b, c })
             }
             5 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::Division { a, b, c })
+                Some(ParsedInstruction::Division { a, b, c })
             }
             6 => {
                 let a = ((code >> 6) & 7) as usize;
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::NotAnd { a, b, c })
+                Some(ParsedInstruction::NotAnd { a, b, c })
             }
-            7 => Some(Instruction::Halt),
+            7 => Some(ParsedInstruction::Halt),
             8 => {
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::Allocation { b, c })
+                Some(ParsedInstruction::Allocation { b, c })
             }
             9 => {
                 let c = (code & 7) as usize;
-                Some(Instruction::Abandonment { c })
+                Some(ParsedInstruction::Abandonment { c })
             }
             10 => {
                 let c = (code & 7) as usize;
-                Some(Instruction::Output { c })
+                Some(ParsedInstruction::Output { c })
             }
             11 => {
                 let c = (code & 7) as usize;
-                Some(Instruction::Input { c })
+                Some(ParsedInstruction::Input { c })
             }
             12 => {
                 let b = ((code >> 3) & 7) as usize;
                 let c = (code & 7) as usize;
-                Some(Instruction::LoadProgram { b, c })
+                Some(ParsedInstruction::LoadProgram { b, c })
             }
             13 => {
                 let a = ((code >> 25) & 7) as usize;
                 let value = code & 0x1ffffff;
-                Some(Instruction::Immediate { a, value })
+                Some(ParsedInstruction::Immediate { a, value })
             }
             _ => None,
         }
     }
 }
 
-impl std::fmt::Debug for Instruction {
+impl std::fmt::Debug for ParsedInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ConditionalMove { a, b, c } => write!(f, "cmove r{a}, r{b}, r{c}"),

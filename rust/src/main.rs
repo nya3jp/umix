@@ -1,66 +1,69 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use clap::Parser;
-use compiler::{Compiler, ExecutionResult};
-use interpreter::run_interpreter;
-use memory::Memory;
+use clap::Parser as _;
+use instruction::ParsedInstruction;
 
 mod compiler;
 mod instruction;
 mod interpreter;
+mod jit;
 mod memory;
 
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug)]
 struct Args {
+    #[clap(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    Run(RunArgs),
+    Dump(DumpArgs),
+}
+
+#[derive(clap::Args, Debug)]
+struct RunArgs {
+    #[arg(long)]
+    jit: bool,
+
     codex: PathBuf,
 }
 
-pub struct Machine {
-    memory: Memory,
+#[derive(clap::Args, Debug)]
+struct DumpArgs {
+    codex: PathBuf,
 }
 
-impl Machine {
-    pub fn new(program: Vec<u32>) -> Self {
-        Self {
-            memory: Memory::new(program),
+fn main() -> Result<()> {
+    let args = Args::try_parse()?;
+    match args.command {
+        Command::Run(args) => {
+            let data = std::fs::read(args.codex)?;
+            let program: Vec<u32> = data
+                .chunks_exact(4)
+                .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
+                .collect();
+            if args.jit {
+                jit::run(program);
+            } else {
+                interpreter::run(program);
+            }
         }
-    }
-
-    pub fn run_jit(&mut self, mut pc: u32) {
-        loop {
-            eprintln!("# compiling {} platters...", self.memory.arrays[0].len());
-            let mut compiler = Compiler::new();
-            let run = compiler.compile(&self.memory.arrays[0]);
-            eprintln!("# compiled");
-            match run(pc, &mut self.memory) {
-                ExecutionResult::Halt => break,
-                ExecutionResult::Jump { id, new_pc } => {
-                    self.memory.arrays.dup0(id as usize);
-                    pc = new_pc;
-                }
-                ExecutionResult::Panic { reason } => {
-                    eprintln!("Panic: {:?}", reason);
-                    break;
+        Command::Dump(args) => {
+            let data = std::fs::read(args.codex)?;
+            let program: Vec<u32> = data
+                .chunks_exact(4)
+                .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
+                .collect();
+            for (pc, code) in program.into_iter().enumerate() {
+                match ParsedInstruction::from_u32(code) {
+                    Some(inst) => println!("{pc:08}: {inst:?}"),
+                    None => println!("{pc:08}: [0x{code:08x}]"),
                 }
             }
         }
     }
 
-    pub fn run_interpreter(&mut self, pc: usize) {
-        run_interpreter(pc, &mut self.memory)
-    }
-}
-
-fn main() -> Result<()> {
-    let args = Args::try_parse()?;
-    let data = std::fs::read(args.codex)?;
-    let program = data
-        .chunks_exact(4)
-        .map(|chunk| u32::from_be_bytes(chunk.try_into().unwrap()))
-        .collect();
-
-    let mut machine = Machine::new(program);
-    machine.run_jit(0);
     Ok(())
 }

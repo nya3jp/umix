@@ -10,7 +10,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module};
 
 use crate::{
-    instruction::Instruction,
+    instruction::ParsedInstruction,
     memory::{Arrays, Memory},
 };
 
@@ -37,7 +37,7 @@ pub struct Compiler {
 }
 
 fn alloc_array_impl(arrays_real: *mut Arrays, size: u32) -> u32 {
-    let arrays = unsafe { &mut *arrays_real };
+    let arrays: &mut Arrays = unsafe { &mut *arrays_real };
     arrays.insert(vec![0; size as usize]) as u32
 }
 
@@ -68,7 +68,7 @@ fn putc_impl(value: u32) {
 }
 
 fn trace_impl(pc: u32, value: u32) {
-    match Instruction::from_u32(value) {
+    match ParsedInstruction::from_u32(value) {
         Some(inst) => eprintln!("> @ {:04x}: {:?}", pc, inst),
         None => eprintln!("> @ {:04x}: 0x{:08x}", pc, value),
     }
@@ -112,6 +112,7 @@ impl Compiler {
 
         // Declare the function signature.
         let mut ctx = self.module.make_context();
+        ctx.set_disasm(true);
         ctx.func.signature.params = vec![
             AbiParam::new(platter), // pc
             AbiParam::new(pointer), // regs_ptr
@@ -514,6 +515,9 @@ impl Compiler {
             .declare_function("main", Linkage::Export, &ctx.func.signature)
             .unwrap();
         self.module.define_function(func_id, &mut ctx).unwrap();
+        if let Some(vcode) = ctx.compiled_code().unwrap().vcode.as_ref() {
+            eprintln!("{}", vcode);
+        }
         self.module.clear_context(&mut ctx);
         self.module.finalize_definitions().unwrap();
 
