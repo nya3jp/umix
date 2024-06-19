@@ -76,9 +76,6 @@ pub fn execute_step(inst: Instruction, memory: &mut Memory) -> StepResult {
         12 => {
             let id = memory.regs[inst.b()];
             let new_pc = memory.regs[inst.c()] as usize;
-            if id != 0 {
-                memory.arrays.dup0(id as usize);
-            }
             StepResult::Jump { id, new_pc }
         }
         13 => {
@@ -99,7 +96,12 @@ pub fn run(program: Vec<u32>) {
         match execute_step(inst, &mut memory) {
             StepResult::Halt => return,
             StepResult::Next => pc += 1,
-            StepResult::Jump { new_pc, .. } => pc = new_pc,
+            StepResult::Jump { id, new_pc, .. } => {
+                if id != 0 {
+                    memory.arrays.dup0(id as usize);
+                }
+                pc = new_pc
+            }
         }
     }
 }

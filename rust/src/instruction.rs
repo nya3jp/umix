@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Debug)]
 pub struct Instruction(u32);
 
+#[allow(dead_code)]
 impl Instruction {
     pub fn new(code: u32) -> Self {
         Self(code)

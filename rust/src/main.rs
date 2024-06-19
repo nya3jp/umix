@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Parser as _;
 use instruction::ParsedInstruction;
 
-mod compiler;
+mod codegen;
 mod instruction;
 mod interpreter;
 mod jit;
@@ -22,10 +22,16 @@ enum Command {
     Dump(DumpArgs),
 }
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum RunMode {
+    Jit,
+    Interpreter,
+}
+
 #[derive(clap::Args, Debug)]
 struct RunArgs {
-    #[arg(long)]
-    jit: bool,
+    #[arg(long, default_value = "jit")]
+    mode: RunMode,
 
     codex: PathBuf,
 }
@@ -49,10 +55,9 @@ fn main() -> Result<()> {
     match args.command {
         Command::Run(args) => {
             let program = load_program(&args.codex)?;
-            if args.jit {
-                jit::run(program);
-            } else {
-                interpreter::run(program);
+            match args.mode {
+                RunMode::Jit => jit::run(program),
+                RunMode::Interpreter => interpreter::run(program),
             }
         }
         Command::Dump(args) => {
