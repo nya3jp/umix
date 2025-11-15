@@ -2,14 +2,12 @@ import { Terminal } from '@xterm/xterm';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { openpty } from 'xterm-pty';
-import { Memory } from './common';
-import { run } from './interpreter';
+import type { WorkerToMainMessage } from './interpreterMessages';
 import './style.css';
 
-async function loadUmixCodex(): Promise<DataView> {
+async function loadUmixCodex(): Promise<ArrayBuffer> {
   const response = await fetch('/umix/codex/umix.um');
-  const buffer = await response.arrayBuffer();
-  return new DataView(buffer);
+  return await response.arrayBuffer();
 }
 
 interface Slave {
@@ -76,6 +74,56 @@ function initUi(): Terminal {
   return terminal;
 }
 
+async function runWorker(codex: ArrayBuffer, io: PtyIO, slave: Slave): Promise<void> {
+  const worker = new Worker(new URL('./interpreterWorker.ts', import.meta.url), {type: 'module'});
+
+  const workerCompletion = new Promise<void>((resolve, reject) => {
+    worker.addEventListener('message', (event: MessageEvent<WorkerToMainMessage>) => {
+      const data = event.data;
+      switch (data.type) {
+        case 'write':
+          void io.write(data.value).catch((error) => {
+            console.error('Failed to write to terminal', error);
+          });
+          break;
+        case 'read':
+          void io.read().then((value) => {
+            worker.postMessage({type: 'input', value});
+          }).catch((error) => {
+            reject(error);
+            worker.terminate();
+          });
+          break;
+        case 'exit':
+          slave.write('\n--- Session terminated ---\n');
+          resolve();
+          worker.terminate();
+          break;
+        case 'error': {
+          const err = new Error(data.message);
+          if (data.stack) {
+            err.stack = data.stack;
+          }
+          slave.write(`\n--- Interpreter error: ${data.message} ---\n`);
+          reject(err);
+          worker.terminate();
+          break;
+        }
+      }
+    });
+
+    worker.addEventListener('error', (event) => {
+      const error = event.error ?? new Error(`Worker error: ${event.message}`);
+      reject(error);
+      worker.terminate();
+    });
+  });
+
+  worker.postMessage({type: 'start', program: codex}, [codex]);
+
+  await workerCompletion;
+}
+
 async function main() {
   const terminal = initUi();
 
@@ -83,13 +131,9 @@ async function main() {
   terminal.loadAddon(master);
 
   const codex = await loadUmixCodex();
-
-  const memory = new Memory(codex);
   const io = new PtyIO(slave);
 
-  await run(memory, io);
-
-  slave.write('\n--- Session terminated ---\n');
+  await runWorker(codex, io, slave);
 }
 
 main().catch((e) => {

@@ -1,6 +1,6 @@
 import type { IO, Memory } from "./common";
 
-export async function run(memory: Memory, io: IO): Promise<void> {
+export async function runInterpreter(memory: Memory, io: IO): Promise<void> {
   for (let pc = 0;;) {
     const inst = memory.arrays[0]!.getUint32(pc * 4);
     const op = inst >>> 28;
