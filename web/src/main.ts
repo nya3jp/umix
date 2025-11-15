@@ -1,10 +1,10 @@
 import { Terminal } from '@xterm/xterm';
 import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
-import './style.css';
 import { openpty } from 'xterm-pty';
 import { Memory } from './common';
 import { run } from './interpreter';
+import './style.css';
 
 async function loadUmixCodex(): Promise<DataView> {
   const response = await fetch('/umix/codex/umix.um');
@@ -12,7 +12,11 @@ async function loadUmixCodex(): Promise<DataView> {
   return new DataView(buffer);
 }
 
-type Slave = typeof openpty extends () => { slave: infer S } ? S : never;
+interface Slave {
+  onReadable(listener: () => void): void,
+  read(length?: number): number[],
+  write(arg: string | number[]): void,
+}
 
 class PtyIO {
   private readonly slave: Slave;
