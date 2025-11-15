@@ -7,7 +7,7 @@ import { Memory } from './common';
 import { run } from './interpreter';
 
 async function loadUmixCodex(): Promise<DataView> {
-  const response = await fetch('/codex/umix.um');
+  const response = await fetch('/umix/codex/umix.um');
   const buffer = await response.arrayBuffer();
   return new DataView(buffer);
 }
