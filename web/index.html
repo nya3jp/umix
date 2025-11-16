@@ -8,7 +8,25 @@
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   </head>
   <body>
-    <div id="terminal"></div>
+    <div class="console">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span class="toolbar-led" aria-hidden="true"></span>
+          <div class="toolbar-title">
+            UMIX CONSOLE
+          </div>
+        </div>
+        <div class="toolbar-buttons">
+          <!--
+          <button type="button" class="toolbar-button">Reset</button>
+          <button type="button" class="toolbar-button">Help</button>
+          -->
+        </div>
+      </div>
+      <div class="terminal-container">
+        <div id="terminal"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
