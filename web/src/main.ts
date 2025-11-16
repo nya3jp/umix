@@ -54,7 +54,12 @@ class PtyIO {
 }
 
 function initUi(): Terminal {
-  const terminal = new Terminal();
+  const terminal = new Terminal({
+    theme: {
+      foreground: '#eeeeee',
+      background: '#123456',
+    },
+  });
 
   terminal.loadAddon(new ClipboardAddon());
 
